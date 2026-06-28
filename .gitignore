@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# macOS
+.DS_Store
+*.dmg
+
+# IDE
+.vscode/
+.idea/
+*.swp
