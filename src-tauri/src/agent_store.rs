@@ -11,21 +11,28 @@ const MAX_AGENTS: usize = 50;
 
 pub struct AgentStore {
     agents: HashMap<String, AgentInfo>,
+    // Unix-seconds of the last hook received per agent — not serialised.
+    last_event_at: HashMap<String, u64>,
     dnd: bool,
 }
 
 impl AgentStore {
     pub fn new() -> Self {
-        Self { agents: HashMap::new(), dnd: false }
+        Self { agents: HashMap::new(), last_event_at: HashMap::new(), dnd: false }
     }
 
     pub fn set_dnd(&mut self, enabled: bool) {
         self.dnd = enabled;
     }
 
-    /// Load a persisted agent from the database on startup.
     pub fn load_agent(&mut self, agent: AgentInfo) {
         self.agents.insert(agent.id.clone(), agent);
+    }
+
+    pub fn rename_agent(&mut self, id: &str, name: &str) {
+        if let Some(agent) = self.agents.get_mut(id) {
+            agent.name = name.to_string();
+        }
     }
 
     pub fn list(&self) -> Vec<AgentInfo> {
@@ -34,35 +41,56 @@ impl AgentStore {
         v
     }
 
+    /// Transition agents that have been Working/Running for longer than
+    /// `idle_secs` without a new hook into Inactive.
+    pub fn tick_idle(&mut self, idle_secs: u64) -> Option<Vec<AgentInfo>> {
+        let now = unix_now();
+        let mut changed = false;
+
+        for agent in self.agents.values_mut() {
+            let active = matches!(agent.state, AgentState::Working | AgentState::Running);
+            if !active {
+                continue;
+            }
+            let last = self.last_event_at.get(&agent.id).copied().unwrap_or(agent.started_at);
+            if now.saturating_sub(last) >= idle_secs {
+                agent.state = AgentState::Inactive;
+                changed = true;
+            }
+        }
+
+        if changed { Some(self.list()) } else { None }
+    }
+
     /// Process a hook payload.
     /// Returns the sound to play (if any) and an alert to persist/emit (if any).
-    /// Alerts are generated regardless of DND; sounds are suppressed by DND.
+    /// Alerts are always generated; sounds are suppressed by DND.
     pub fn apply_hook(&mut self, payload: HookPayload) -> (Option<SoundKind>, Option<AlertInfo>) {
-        // Reject malformed payloads before touching internal state
         if payload.session_id.is_empty() || payload.session_id.len() > 128 {
             return (None, None);
         }
 
         let now = unix_now();
+        self.last_event_at.insert(payload.session_id.clone(), now);
+
         let new_state = infer_state(&payload);
         let task = infer_task(&payload);
 
-        // Scope the mutable borrow of self.agents so we can prune and read below
-        let (old_state, current_state, alarm_done, alarm_error, alarm_waiting, agent_name) = {
+        let (old_state, current_state, alarm_stopped, alarm_error, alarm_inactive, agent_name) = {
             let agent = self
                 .agents
                 .entry(payload.session_id.clone())
                 .or_insert_with(|| AgentInfo {
                     id: payload.session_id.clone(),
                     name: derive_name(payload.transcript_path.as_deref(), &payload.session_id),
-                    state: AgentState::Thinking,
+                    state: AgentState::Working,
                     task: String::new(),
                     elapsed: 0,
                     tokens: 0,
                     started_at: now,
-                    alarm_done: true,
+                    alarm_stopped: true,
                     alarm_error: true,
-                    alarm_waiting: true,
+                    alarm_inactive: true,
                 });
 
             let old = agent.state.clone();
@@ -74,45 +102,42 @@ impl AgentStore {
             (
                 old,
                 agent.state.clone(),
-                agent.alarm_done,
+                agent.alarm_stopped,
                 agent.alarm_error,
-                agent.alarm_waiting,
+                agent.alarm_inactive,
                 agent.name.clone(),
             )
-            // agent borrow dropped here — safe to use self.agents again
         };
 
-        // Prune oldest Done agents when the cap is exceeded
+        // Prune oldest Stopped/Inactive agents when the cap is exceeded
         if self.agents.len() > MAX_AGENTS {
-            let mut done_ids: Vec<(u64, String)> = self
+            let mut pruneable: Vec<(u64, String)> = self
                 .agents
                 .values()
-                .filter(|a| a.state == AgentState::Done)
+                .filter(|a| matches!(a.state, AgentState::Stopped | AgentState::Inactive))
                 .map(|a| (a.started_at, a.id.clone()))
                 .collect();
-            done_ids.sort_unstable_by_key(|&(t, _)| t);
+            pruneable.sort_unstable_by_key(|&(t, _)| t);
             let excess = self.agents.len().saturating_sub(MAX_AGENTS);
-            for (_, id) in done_ids.iter().take(excess) {
+            for (_, id) in pruneable.iter().take(excess) {
                 self.agents.remove(id);
             }
         }
 
-        // Sound — suppressed by DND
         let sound = if self.dnd {
             None
         } else {
-            sound_for_transition(&old_state, &current_state, alarm_done, alarm_error, alarm_waiting)
+            sound_for_transition(&old_state, &current_state, alarm_stopped, alarm_error, alarm_inactive)
         };
 
-        // Alert — generated regardless of DND (always logged in Alerts tab)
         let alert = make_alert(
             &payload.session_id,
             &agent_name,
             &old_state,
             &current_state,
-            alarm_done,
+            alarm_stopped,
             alarm_error,
-            alarm_waiting,
+            alarm_inactive,
         );
 
         (sound, alert)
@@ -135,26 +160,25 @@ fn unix_now_ms() -> u64 {
 
 fn infer_state(p: &HookPayload) -> AgentState {
     match p.hook_event_name.as_str() {
-        "PreToolUse" => AgentState::Doing,
-        "PostToolUse" => AgentState::Thinking,
-        "Stop" => AgentState::Done,
+        "UserPromptSubmit" => AgentState::Working,   // prompt submitted, Claude starting
+        "PreToolUse"       => AgentState::Running,
+        "PostToolUse"      => AgentState::Working,
+        "Stop"             => AgentState::Inactive,  // finished this turn; session may still be alive
         "Notification" => {
             let msg = p.message.as_deref().unwrap_or("").to_ascii_lowercase();
-            // Compaction is the only notification reliable enough to change state.
-            // "Waiting" is NOT detected here — the word appears in many unrelated
-            // messages and causes false alarms (e.g. "please wait…" status updates).
             if msg.contains("compact") {
                 AgentState::Compacting
             } else {
-                AgentState::Thinking
+                AgentState::Working
             }
         }
-        _ => AgentState::Thinking,
+        _ => AgentState::Working,
     }
 }
 
 fn infer_task(p: &HookPayload) -> String {
     match p.hook_event_name.as_str() {
+        "UserPromptSubmit" => "Reading your prompt...".to_string(),
         "PreToolUse" => {
             let tool = p.tool_name.as_deref().unwrap_or("tool");
             if let Some(input) = &p.tool_input {
@@ -170,14 +194,12 @@ fn infer_task(p: &HookPayload) -> String {
             }
             format!("Running {tool}")
         }
-        "Stop" => "Task complete".to_string(),
+        "Stop" => String::new(), // clear task — awaiting next prompt
         "Notification" => {
             let msg = p.message.as_deref().unwrap_or("").to_ascii_lowercase();
             if msg.contains("compact") {
                 "Compacting context...".to_string()
             } else {
-                // Empty — keep the last real task description from PreToolUse.
-                // Generic notifications must not overwrite it.
                 String::new()
             }
         }
@@ -188,17 +210,17 @@ fn infer_task(p: &HookPayload) -> String {
 fn sound_for_transition(
     old: &AgentState,
     new: &AgentState,
-    alarm_done: bool,
+    alarm_stopped: bool,
     alarm_error: bool,
-    alarm_waiting: bool,
+    alarm_inactive: bool,
 ) -> Option<SoundKind> {
     if old == new {
         return None;
     }
     match new {
-        AgentState::Done if alarm_done => Some(SoundKind::Done),
-        AgentState::Error if alarm_error => Some(SoundKind::Urgent),
-        AgentState::Waiting if alarm_waiting => Some(SoundKind::Urgent),
+        AgentState::Inactive if alarm_inactive => Some(SoundKind::Done),
+        AgentState::Error    if alarm_error    => Some(SoundKind::Urgent),
+        AgentState::Stopped  if alarm_stopped  => Some(SoundKind::Done),
         _ => None,
     }
 }
@@ -208,17 +230,17 @@ fn make_alert(
     agent_name: &str,
     old: &AgentState,
     new: &AgentState,
-    alarm_done: bool,
+    alarm_stopped: bool,
     alarm_error: bool,
-    alarm_waiting: bool,
+    alarm_inactive: bool,
 ) -> Option<AlertInfo> {
     if old == new {
         return None;
     }
     let enabled = match new {
-        AgentState::Done => alarm_done,
-        AgentState::Error => alarm_error,
-        AgentState::Waiting => alarm_waiting,
+        AgentState::Stopped  => alarm_stopped,
+        AgentState::Error    => alarm_error,
+        AgentState::Inactive => alarm_inactive,
         _ => return None,
     };
     if !enabled {
@@ -237,18 +259,30 @@ fn make_alert(
 
 fn state_label(state: &AgentState) -> &'static str {
     match state {
-        AgentState::Thinking => "Thinking",
-        AgentState::Planning => "Planning",
-        AgentState::Doing => "Doing",
+        AgentState::Working    => "Working",
+        AgentState::Running    => "Running",
         AgentState::Compacting => "Compacting",
-        AgentState::Done => "Done",
-        AgentState::Error => "Error",
-        AgentState::Waiting => "Waiting",
+        AgentState::Inactive   => "Inactive",
+        AgentState::Stopped    => "Stopped",
+        AgentState::Error      => "Error",
     }
 }
 
-// Claude Code encodes the project path by replacing / with -
-// e.g., /Users/ian/Desktop/my-project → -Users-ian-Desktop-my-project
+const ANIMALS: &[&str] = &[
+    "Axolotl", "Binturong", "Capybara", "Dingo",    "Echidna",
+    "Fennec",  "Gecko",     "Heron",    "Ibex",      "Jackal",
+    "Kinkajou","Llama",     "Marmot",   "Narwhal",   "Ocelot",
+    "Pangolin","Quokka",    "Raven",    "Serval",    "Tapir",
+    "Tanuki",  "Uakari",    "Vicuna",   "Wombat",    "Quetzal",
+];
+
+fn pick_animal(session_id: &str) -> &'static str {
+    let hash = session_id
+        .bytes()
+        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+    ANIMALS[(hash as usize) % ANIMALS.len()]
+}
+
 fn derive_name(transcript_path: Option<&str>, session_id: &str) -> String {
     if let Some(path) = transcript_path {
         if let Some(idx) = path.find("/projects/") {
@@ -263,7 +297,7 @@ fn derive_name(transcript_path: Option<&str>, session_id: &str) -> String {
             }
         }
     }
-    format!("agent-{}", &session_id[..session_id.len().min(6)])
+    format!("Agent {}", pick_animal(session_id))
 }
 
 fn clean_encoded_path(encoded: &str) -> String {

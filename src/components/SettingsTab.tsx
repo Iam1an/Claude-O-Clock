@@ -47,7 +47,7 @@ export function SettingsTab({ dnd, onDndChange }: SettingsTabProps) {
         <div className="settings-row">
           <div>
             <div className="settings-label">Sound alerts</div>
-            <div className="settings-sublabel">Play sound on Done / Error / Waiting</div>
+            <div className="settings-sublabel">Play sound on Stopped / Error / Inactive</div>
           </div>
           <button
             className={`toggle ${s.soundEnabled ? "on" : "off"}`}
@@ -77,7 +77,7 @@ export function SettingsTab({ dnd, onDndChange }: SettingsTabProps) {
         <div className="settings-row">
           <div>
             <div className="settings-label">MCP server</div>
-            <div className="settings-sublabel">Expose claudeoclock tools to Claude Code</div>
+            <div className="settings-sublabel">Expose Claude'O'Clock tools to Claude Code</div>
           </div>
           <button
             className={`toggle ${s.mcpEnabled ? "on" : "off"}`}

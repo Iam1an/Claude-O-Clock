@@ -1,11 +1,10 @@
 export type AgentState =
-  | "thinking"
-  | "planning"
-  | "doing"
+  | "working"
+  | "running"
   | "compacting"
-  | "done"
-  | "error"
-  | "waiting";
+  | "inactive"
+  | "stopped"
+  | "error";
 
 export type Tab = "overview" | "agents" | "alerts" | "settings";
 
@@ -17,9 +16,9 @@ export interface Agent {
   elapsed: number; // seconds
   tokens: number;
   startedAt: number; // unix timestamp (seconds)
-  alarmDone: boolean;
+  alarmStopped: boolean;
   alarmError: boolean;
-  alarmWaiting: boolean;
+  alarmInactive: boolean;
 }
 
 export interface AlertEntry {
@@ -32,21 +31,19 @@ export interface AlertEntry {
 }
 
 export const STATE_LABEL: Record<AgentState, string> = {
-  thinking: "Thinking",
-  planning: "Planning",
-  doing: "Doing",
+  working:    "Working",
+  running:    "Running",
   compacting: "Compacting",
-  done: "Done",
-  error: "Error",
-  waiting: "Waiting",
+  inactive:   "Inactive",
+  stopped:    "Stopped",
+  error:      "Error",
 };
 
 export const STATE_COLOR: Record<AgentState, string> = {
-  thinking: "#9B59B6",
-  planning: "#3498DB",
-  doing: "#E67E22",
+  working:    "#9B59B6",
+  running:    "#E67E22",
   compacting: "#F39C12",
-  done: "#27AE60",
-  error: "#E74C3C",
-  waiting: "#7F8C8D",
+  inactive:   "#7F8C8D",
+  stopped:    "#27AE60",
+  error:      "#E74C3C",
 };

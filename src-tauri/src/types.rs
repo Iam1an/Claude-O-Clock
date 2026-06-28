@@ -3,13 +3,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentState {
-    Thinking,
-    Planning,
-    Doing,
+    Working,
+    Running,
     Compacting,
-    Done,
+    Inactive,
+    Stopped,
     Error,
-    Waiting,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,9 +21,9 @@ pub struct AgentInfo {
     pub elapsed: u64,
     pub tokens: u64,
     pub started_at: u64,
-    pub alarm_done: bool,
+    pub alarm_stopped: bool,
     pub alarm_error: bool,
-    pub alarm_waiting: bool,
+    pub alarm_inactive: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,5 +50,6 @@ pub struct HookPayload {
     #[serde(default)]
     pub message: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub stop_hook_active: Option<bool>,
 }

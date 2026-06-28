@@ -1,3 +1,5 @@
+import { useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { Agent } from "../types";
 import { STATE_COLOR, STATE_LABEL } from "../types";
 
@@ -20,12 +22,42 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-const ACTIVE_STATES = new Set(["thinking", "planning", "doing", "compacting"]);
+const ACTIVE_STATES = new Set(["working", "running", "compacting"]);
+const IS_TAURI = "__TAURI_INTERNALS__" in window;
 
 export function AgentCard({ agent, compact = false }: AgentCardProps) {
   const color = STATE_COLOR[agent.state];
   const label = STATE_LABEL[agent.state];
   const isActive = ACTIVE_STATES.has(agent.state);
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(agent.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function startEdit(e: React.MouseEvent) {
+    e.stopPropagation();
+    setDraft(agent.name);
+    setEditing(true);
+    // focus happens via autoFocus on the input
+  }
+
+  function commit() {
+    const name = draft.trim();
+    if (name && name !== agent.name && IS_TAURI) {
+      invoke("rename_agent", { id: agent.id, name }).catch(console.error);
+    }
+    setEditing(false);
+  }
+
+  function cancel() {
+    setDraft(agent.name);
+    setEditing(false);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    if (e.key === "Escape") cancel();
+  }
 
   return (
     <div
@@ -37,7 +69,29 @@ export function AgentCard({ agent, compact = false }: AgentCardProps) {
           className={`state-dot ${isActive ? "pulsing" : ""}`}
           style={{ background: color }}
         />
-        <span className="agent-name">{agent.name}</span>
+
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="agent-name-input"
+            value={draft}
+            autoFocus
+            maxLength={40}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={onKeyDown}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <span
+            className="agent-name agent-name--editable"
+            title="Click to rename"
+            onClick={startEdit}
+          >
+            {agent.name}
+          </span>
+        )}
+
         <span className="state-badge">{label}</span>
       </div>
 

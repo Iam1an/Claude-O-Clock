@@ -12,6 +12,8 @@ import { SettingsTab } from "./components/SettingsTab";
 
 const IS_TAURI = "__TAURI_INTERNALS__" in window;
 
+const TAB_ORDER: Tab[] = ["overview", "agents", "alerts", "settings"];
+
 async function minimize() {
   try { await getCurrentWindow().minimize(); } catch { /* browser dev */ }
 }
@@ -22,10 +24,19 @@ async function close() {
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("agents");
+  const [slideDir, setSlideDir] = useState<"left" | "right">("right");
   const [dnd, setDnd] = useState(false);
   const [alerts, setAlerts] = useState<AlertEntry[]>([]);
 
   const agents = useAgents();
+
+  function handleTabSelect(next: Tab) {
+    if (next === tab) return;
+    const from = TAB_ORDER.indexOf(tab);
+    const to = TAB_ORDER.indexOf(next);
+    setSlideDir(to > from ? "right" : "left");
+    setTab(next);
+  }
 
   function handleDndChange(next: boolean) {
     setDnd(next);
@@ -112,13 +123,15 @@ export default function App() {
       )}
 
       <main className="content">
-        {tab === "overview" && <Overview agents={agents} />}
-        {tab === "agents" && <AgentGrid agents={agents} />}
-        {tab === "alerts" && <AlertsTab alerts={alerts} onClear={handleClearAlerts} />}
-        {tab === "settings" && <SettingsTab dnd={dnd} onDndChange={handleDndChange} />}
+        <div key={tab} className={`tab-panel tab-panel--${slideDir}`}>
+          {tab === "overview" && <Overview agents={agents} />}
+          {tab === "agents" && <AgentGrid agents={agents} />}
+          {tab === "alerts" && <AlertsTab alerts={alerts} onClear={handleClearAlerts} />}
+          {tab === "settings" && <SettingsTab dnd={dnd} onDndChange={handleDndChange} />}
+        </div>
       </main>
 
-      <TabBar active={tab} onSelect={setTab} alertCount={alerts.length} />
+      <TabBar active={tab} onSelect={handleTabSelect} alertCount={alerts.length} />
     </div>
   );
 }

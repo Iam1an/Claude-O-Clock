@@ -25,7 +25,9 @@
         "transparent": true,
         "backgroundColor": [6, 6, 8, 255],
         "shadow": true,
-        "center": true
+        "center": true,
+        "visible": false,
+        "skipTaskbar": true
       }
     ],
     "security": {

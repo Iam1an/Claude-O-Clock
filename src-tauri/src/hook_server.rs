@@ -22,11 +22,11 @@ const HTTP_400: &[u8] = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n"
 pub async fn start(store: SharedStore, db_conn: SharedDb, app: AppHandle) {
     let listener = match TcpListener::bind(("127.0.0.1", HOOK_PORT)).await {
         Ok(l) => {
-            println!("[claudeoclock] hook server on 127.0.0.1:{HOOK_PORT}");
+            println!("[Claude'O'Clock] hook server on 127.0.0.1:{HOOK_PORT}");
             l
         }
         Err(e) => {
-            eprintln!("[claudeoclock] hook server failed to bind: {e}");
+            eprintln!("[Claude'O'Clock] hook server failed to bind: {e}");
             return;
         }
     };
@@ -49,6 +49,11 @@ pub async fn start(store: SharedStore, db_conn: SharedDb, app: AppHandle) {
 
             match parsed {
                 Some(payload) => {
+                    println!(
+                        "[Claude'O'Clock] hook: {} | session: {}",
+                        payload.hook_event_name,
+                        &payload.session_id[..payload.session_id.len().min(8)],
+                    );
                     let session_id = payload.session_id.clone();
 
                     let (agents, sound_kind, alert) = {

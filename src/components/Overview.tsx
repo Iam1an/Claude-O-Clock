@@ -8,11 +8,11 @@ interface OverviewProps {
 export function Overview({ agents }: OverviewProps) {
   const total = agents.length;
   const active = agents.filter((a) =>
-    ["thinking", "planning", "doing", "compacting"].includes(a.state)
+    ["working", "running", "compacting"].includes(a.state)
   ).length;
-  const done = agents.filter((a) => a.state === "done").length;
+  const done = agents.filter((a) => a.state === "stopped").length;
   const needAttention = agents.filter((a) =>
-    ["error", "waiting"].includes(a.state)
+    ["error", "inactive"].includes(a.state)
   ).length;
 
   const stateMap = new Map<string, number>();
@@ -38,7 +38,7 @@ export function Overview({ agents }: OverviewProps) {
           <div className="stat-value" style={{ color: "#27AE60" }}>
             {done}
           </div>
-          <div className="stat-label">Done</div>
+          <div className="stat-label">Stopped</div>
         </div>
         <div className="stat-card">
           <div
