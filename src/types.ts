@@ -30,6 +30,15 @@ export interface AlertEntry {
   message: string;
 }
 
+export interface AgentEvent {
+  id: number;
+  sessionId: string;
+  eventType: string;
+  toolName?: string;
+  description?: string;
+  timestamp: number; // unix ms
+}
+
 export const STATE_LABEL: Record<AgentState, string> = {
   working:    "Working",
   running:    "Running",

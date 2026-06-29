@@ -15,11 +15,18 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["net", "io-util", "time"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
+
+# tray-icon pulled in on macOS only — on Linux it would force a link against
+# libayatana-appindicator3 which isn't needed (Linux uses a plain window).
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+tauri = { version = "2" }
 
 [profile.release]
 lto = true

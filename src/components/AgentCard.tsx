@@ -6,6 +6,7 @@ import { STATE_COLOR, STATE_LABEL } from "../types";
 interface AgentCardProps {
   agent: Agent;
   compact?: boolean;
+  onSelect?: (agent: Agent) => void;
 }
 
 function formatElapsed(seconds: number): string {
@@ -25,7 +26,7 @@ function formatTokens(n: number): string {
 const ACTIVE_STATES = new Set(["working", "running", "compacting"]);
 const IS_TAURI = "__TAURI_INTERNALS__" in window;
 
-export function AgentCard({ agent, compact = false }: AgentCardProps) {
+export function AgentCard({ agent, compact = false, onSelect }: AgentCardProps) {
   const color = STATE_COLOR[agent.state];
   const label = STATE_LABEL[agent.state];
   const isActive = ACTIVE_STATES.has(agent.state);
@@ -63,6 +64,7 @@ export function AgentCard({ agent, compact = false }: AgentCardProps) {
     <div
       className="agent-card"
       style={{ "--state-color": color, "--state-color-dim": `${color}22` } as React.CSSProperties}
+      onClick={() => onSelect?.(agent)}
     >
       <div className="agent-card-header">
         <span

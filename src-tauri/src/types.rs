@@ -37,6 +37,17 @@ pub struct AlertInfo {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEvent {
+    pub id: i64,
+    pub session_id: String,
+    pub event_type: String,
+    pub tool_name: Option<String>,
+    pub description: Option<String>,
+    pub timestamp: u64, // unix milliseconds
+}
+
 #[derive(Debug, Deserialize)]
 pub struct HookPayload {
     pub session_id: String,

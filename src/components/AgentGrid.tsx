@@ -3,9 +3,10 @@ import { AgentCard } from "./AgentCard";
 
 interface AgentGridProps {
   agents: Agent[];
+  onSelect?: (agent: Agent) => void;
 }
 
-export function AgentGrid({ agents }: AgentGridProps) {
+export function AgentGrid({ agents, onSelect }: AgentGridProps) {
   const twoCol = agents.length > 5;
 
   if (agents.length === 0) {
@@ -23,7 +24,7 @@ export function AgentGrid({ agents }: AgentGridProps) {
   return (
     <div className={`agent-grid ${twoCol ? "two-col" : ""}`}>
       {agents.map((agent) => (
-        <AgentCard key={agent.id} agent={agent} compact={twoCol} />
+        <AgentCard key={agent.id} agent={agent} compact={twoCol} onSelect={onSelect} />
       ))}
     </div>
   );

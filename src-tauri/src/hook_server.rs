@@ -55,6 +55,10 @@ pub async fn start(store: SharedStore, db_conn: SharedDb, app: AppHandle) {
                         &payload.session_id[..payload.session_id.len().min(8)],
                     );
                     let session_id = payload.session_id.clone();
+                    let event_type = payload.hook_event_name.clone();
+                    let tool_name = payload.tool_name.clone();
+                    let description = event_description(&payload);
+                    let ts_ms = unix_now_ms();
 
                     let (agents, sound_kind, alert) = {
                         let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
@@ -70,7 +74,7 @@ pub async fn start(store: SharedStore, db_conn: SharedDb, app: AppHandle) {
                         sound::play(kind);
                     }
 
-                    // Persist the updated agent and any new alert to SQLite
+                    // Persist the updated agent, new alert, and event log to SQLite
                     {
                         let conn = db_conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(agent) = agents.iter().find(|a| a.id == session_id) {
@@ -79,6 +83,14 @@ pub async fn start(store: SharedStore, db_conn: SharedDb, app: AppHandle) {
                         if let Some(ref a) = alert {
                             let _ = db::save_alert(&conn, a);
                         }
+                        let _ = db::insert_event(
+                            &conn,
+                            &session_id,
+                            &event_type,
+                            tool_name.as_deref(),
+                            description.as_deref(),
+                            ts_ms,
+                        );
                     }
 
                     // Emit new alert to frontend so it appears in real time
@@ -123,6 +135,31 @@ async fn read_body(stream: &mut tokio::net::TcpStream) -> Option<Vec<u8>> {
         }
     }
     None
+}
+
+fn event_description(p: &HookPayload) -> Option<String> {
+    match p.hook_event_name.as_str() {
+        "PreToolUse" | "PostToolUse" => {
+            if let Some(input) = &p.tool_input {
+                for key in &["command", "path", "file_path", "url"] {
+                    if let Some(val) = input.get(key).and_then(|v| v.as_str()) {
+                        let s = val.trim();
+                        return Some(s[..s.len().min(80)].to_string());
+                    }
+                }
+            }
+            None
+        }
+        "Notification" => p.message.as_ref().map(|m| m[..m.len().min(80)].to_string()),
+        _ => None,
+    }
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 fn find_header_end(buf: &[u8]) -> Option<usize> {

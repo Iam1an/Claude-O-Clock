@@ -33,6 +33,35 @@ fn clear_alerts(db: tauri::State<SharedDb>) {
 }
 
 #[tauri::command]
+fn get_agent_events(id: String, db: tauri::State<SharedDb>) -> Vec<types::AgentEvent> {
+    let conn = db.lock().unwrap_or_else(|e| e.into_inner());
+    db::load_agent_events(&conn, &id).unwrap_or_default()
+}
+
+#[tauri::command]
+fn set_agent_alarms(
+    id: String,
+    stopped: bool,
+    error: bool,
+    inactive: bool,
+    store: tauri::State<agent_store::SharedStore>,
+    db: tauri::State<SharedDb>,
+    app: tauri::AppHandle,
+) {
+    use tauri::Emitter;
+    let agents = {
+        let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
+        s.set_agent_alarms(&id, stopped, error, inactive);
+        s.list()
+    };
+    {
+        let conn = db.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = db::update_agent_alarms(&conn, &id, stopped, error, inactive);
+    }
+    let _ = app.emit("agent-update", &agents);
+}
+
+#[tauri::command]
 fn rename_agent(
     id: String,
     name: String,
@@ -63,7 +92,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(store.clone())
-        .invoke_handler(tauri::generate_handler![get_agents, set_dnd, get_alerts, clear_alerts, rename_agent])
+        .invoke_handler(tauri::generate_handler![get_agents, set_dnd, get_alerts, clear_alerts, rename_agent, get_agent_events, set_agent_alarms])
         .setup(move |app| {
             // Open the database in the app data directory
             let data_dir = app
@@ -154,17 +183,9 @@ fn init_macos<R: tauri::Runtime>(app: &mut tauri::App<R>) -> tauri::Result<()> {
     let win_for_tray = win.clone();
     let win_for_blur = win.clone();
 
-    // Clone the bundled app icon into an owned Image for the tray
-    let src = app.default_window_icon().expect("no default window icon");
-    let icon = tauri::image::Image::new_owned(
-        src.rgba().to_vec(),
-        src.width(),
-        src.height(),
-    );
-
     TrayIconBuilder::new()
-        .icon(icon)
-        .icon_as_template(true) // renders correctly in both light and dark menu bars
+        .icon(tauri::include_image!("icons/claudecrabclock3.png"))
+        .icon_as_template(false)
         .tooltip("Claude'O'Clock")
         .on_tray_icon_event(move |tray, event| {
             if let TrayIconEvent::Click {

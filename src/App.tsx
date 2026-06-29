@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AlertEntry, Tab } from "./types";
+import type { Agent, AlertEntry, Tab } from "./types";
 import { useAgents } from "./hooks/useAgents";
 import { TabBar } from "./components/TabBar";
 import { Overview } from "./components/Overview";
 import { AgentGrid } from "./components/AgentGrid";
 import { AlertsTab } from "./components/AlertsTab";
 import { SettingsTab } from "./components/SettingsTab";
+import { AgentDetail } from "./components/AgentDetail";
 
 const IS_TAURI = "__TAURI_INTERNALS__" in window;
 
@@ -27,6 +28,7 @@ export default function App() {
   const [slideDir, setSlideDir] = useState<"left" | "right">("right");
   const [dnd, setDnd] = useState(false);
   const [alerts, setAlerts] = useState<AlertEntry[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   const agents = useAgents();
 
@@ -122,16 +124,26 @@ export default function App() {
         </div>
       )}
 
-      <main className="content">
-        <div key={tab} className={`tab-panel tab-panel--${slideDir}`}>
-          {tab === "overview" && <Overview agents={agents} />}
-          {tab === "agents" && <AgentGrid agents={agents} />}
-          {tab === "alerts" && <AlertsTab alerts={alerts} onClear={handleClearAlerts} />}
-          {tab === "settings" && <SettingsTab dnd={dnd} onDndChange={handleDndChange} />}
-        </div>
-      </main>
-
-      <TabBar active={tab} onSelect={handleTabSelect} alertCount={alerts.length} />
+      {selectedAgentId ? (() => {
+        const agent = agents.find(a => a.id === selectedAgentId);
+        return agent ? (
+          <main className="content" style={{ padding: 0 }}>
+            <AgentDetail agent={agent} onBack={() => setSelectedAgentId(null)} />
+          </main>
+        ) : null;
+      })() : (
+        <>
+          <main className="content">
+            <div key={tab} className={`tab-panel tab-panel--${slideDir}`}>
+              {tab === "overview" && <Overview agents={agents} />}
+              {tab === "agents" && <AgentGrid agents={agents} onSelect={(a: Agent) => setSelectedAgentId(a.id)} />}
+              {tab === "alerts" && <AlertsTab alerts={alerts} onClear={handleClearAlerts} />}
+              {tab === "settings" && <SettingsTab dnd={dnd} onDndChange={handleDndChange} />}
+            </div>
+          </main>
+          <TabBar active={tab} onSelect={handleTabSelect} alertCount={alerts.length} />
+        </>
+      )}
     </div>
   );
 }

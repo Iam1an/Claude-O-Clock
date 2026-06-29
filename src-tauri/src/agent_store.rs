@@ -29,6 +29,14 @@ impl AgentStore {
         self.agents.insert(agent.id.clone(), agent);
     }
 
+    pub fn set_agent_alarms(&mut self, id: &str, stopped: bool, error: bool, inactive: bool) {
+        if let Some(agent) = self.agents.get_mut(id) {
+            agent.alarm_stopped = stopped;
+            agent.alarm_error = error;
+            agent.alarm_inactive = inactive;
+        }
+    }
+
     pub fn rename_agent(&mut self, id: &str, name: &str) {
         if let Some(agent) = self.agents.get_mut(id) {
             agent.name = name.to_string();

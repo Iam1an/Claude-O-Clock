@@ -39,16 +39,15 @@ fn play_blocking(kind: SoundKind) {
     ];
     for path in &candidates {
         if std::path::Path::new(path).exists() {
+            // Try PipeWire first (pw-play), fall back to PulseAudio (paplay)
+            if Command::new("pw-play").arg(path).output().map(|o| o.status.success()).unwrap_or(false) {
+                return;
+            }
             Command::new("paplay").arg(path).output().ok();
             return;
         }
     }
-    // Last resort: system bell via paplay
-    Command::new("paplay")
-        .arg("--volume=32768")
-        .arg("/dev/null")
-        .output()
-        .ok();
+    // No sound files found — silent. User can install sound-theme-freedesktop.
 }
 
 // Stub for any other platform (shouldn't happen per README, but keeps it compiling)
