@@ -12,7 +12,7 @@ export function Overview({ agents }: OverviewProps) {
   ).length;
   const done = agents.filter((a) => a.state === "stopped").length;
   const needAttention = agents.filter((a) =>
-    ["error", "inactive"].includes(a.state)
+    ["waiting", "error"].includes(a.state)
   ).length;
 
   const stateMap = new Map<string, number>();
@@ -38,7 +38,7 @@ export function Overview({ agents }: OverviewProps) {
           <div className="stat-value" style={{ color: "#27AE60" }}>
             {done}
           </div>
-          <div className="stat-label">Stopped</div>
+          <div className="stat-label">Done</div>
         </div>
         <div className="stat-card">
           <div

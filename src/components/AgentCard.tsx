@@ -23,7 +23,7 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-const ACTIVE_STATES = new Set(["working", "running", "compacting"]);
+const ACTIVE_STATES = new Set(["working", "running", "compacting", "waiting"]);
 const IS_TAURI = "__TAURI_INTERNALS__" in window;
 
 export function AgentCard({ agent, compact = false, onSelect }: AgentCardProps) {

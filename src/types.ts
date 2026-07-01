@@ -2,6 +2,7 @@ export type AgentState =
   | "working"
   | "running"
   | "compacting"
+  | "waiting"
   | "inactive"
   | "stopped"
   | "error";
@@ -40,11 +41,12 @@ export interface AgentEvent {
 }
 
 export const STATE_LABEL: Record<AgentState, string> = {
-  working:    "Working",
+  working:    "Thinking",
   running:    "Running",
   compacting: "Compacting",
-  inactive:   "Inactive",
-  stopped:    "Stopped",
+  waiting:    "Needs you",
+  inactive:   "Idle",
+  stopped:    "Done",
   error:      "Error",
 };
 
@@ -52,6 +54,7 @@ export const STATE_COLOR: Record<AgentState, string> = {
   working:    "#9B59B6",
   running:    "#E67E22",
   compacting: "#F39C12",
+  waiting:    "#EAB308",
   inactive:   "#7F8C8D",
   stopped:    "#27AE60",
   error:      "#E74C3C",

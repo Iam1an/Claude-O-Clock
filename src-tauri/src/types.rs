@@ -6,6 +6,7 @@ pub enum AgentState {
     Working,
     Running,
     Compacting,
+    Waiting,
     Inactive,
     Stopped,
     Error,
@@ -53,6 +54,8 @@ pub struct HookPayload {
     pub session_id: String,
     #[serde(default)]
     pub transcript_path: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
     pub hook_event_name: String,
     #[serde(default)]
     pub tool_name: Option<String>,

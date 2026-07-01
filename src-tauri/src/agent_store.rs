@@ -90,7 +90,11 @@ impl AgentStore {
                 .entry(payload.session_id.clone())
                 .or_insert_with(|| AgentInfo {
                     id: payload.session_id.clone(),
-                    name: derive_name(payload.transcript_path.as_deref(), &payload.session_id),
+                    name: derive_name(
+                        payload.transcript_path.as_deref(),
+                        payload.cwd.as_deref(),
+                        &payload.session_id,
+                    ),
                     state: AgentState::Working,
                     task: String::new(),
                     elapsed: 0,
@@ -167,21 +171,41 @@ fn unix_now_ms() -> u64 {
 }
 
 fn infer_state(p: &HookPayload) -> AgentState {
+    // Claude Code has no "thinking" hook — it only fires around tool use and
+    // lifecycle events. So Working is our best signal for "reasoning between
+    // tools", Running for "a tool is executing", and the rest are lifecycle.
     match p.hook_event_name.as_str() {
-        "UserPromptSubmit" => AgentState::Working,   // prompt submitted, Claude starting
-        "PreToolUse"       => AgentState::Running,
-        "PostToolUse"      => AgentState::Working,
-        "Stop"             => AgentState::Inactive,  // finished this turn; session may still be alive
+        "UserPromptSubmit" => AgentState::Working,   // prompt submitted, Claude reasoning
+        "PreToolUse"       => AgentState::Running,   // a tool is executing
+        "PostToolUse"      => AgentState::Working,   // back to reasoning about the result
+        "Stop"             => AgentState::Stopped,   // finished this turn (fires the "done" chime)
+        "SubagentStop"     => AgentState::Working,   // a subagent finished; main agent continues
         "Notification" => {
+            // Claude Code sends two very different Notifications:
+            //   1. a permission request ("Claude needs your permission to use X")
+            //      — a real block, it needs YOU now.
+            //   2. an idle nudge ("Claude is waiting for your input") ~60s after a
+            //      turn finished — the turn is already done, this is not urgent.
+            // Mapping (2) to Waiting was wrong: it bumped a finished agent from
+            // "Done" to "Needs you". Keep (2) as Done; only (1) is Waiting.
             let msg = p.message.as_deref().unwrap_or("").to_ascii_lowercase();
             if msg.contains("compact") {
                 AgentState::Compacting
+            } else if is_idle_nudge(&msg) {
+                AgentState::Stopped // finished its turn, just waiting for you — Done
             } else {
-                AgentState::Working
+                AgentState::Waiting // permission request / other — needs you now
             }
         }
         _ => AgentState::Working,
     }
+}
+
+/// True for the "Claude is waiting for your input" idle nudge (fired ~60s after a
+/// turn ends), as opposed to a permission request which is an active block.
+fn is_idle_nudge(msg_lower: &str) -> bool {
+    (msg_lower.contains("waiting") && msg_lower.contains("input"))
+        || msg_lower.contains("waiting for your")
 }
 
 fn infer_task(p: &HookPayload) -> String {
@@ -202,13 +226,19 @@ fn infer_task(p: &HookPayload) -> String {
             }
             format!("Running {tool}")
         }
-        "Stop" => String::new(), // clear task — awaiting next prompt
+        "Stop" => "Finished — awaiting your next prompt".to_string(),
         "Notification" => {
-            let msg = p.message.as_deref().unwrap_or("").to_ascii_lowercase();
-            if msg.contains("compact") {
+            let lower = p.message.as_deref().unwrap_or("").to_ascii_lowercase();
+            if lower.contains("compact") {
                 "Compacting context...".to_string()
+            } else if is_idle_nudge(&lower) {
+                "Finished — awaiting your next prompt".to_string()
             } else {
-                String::new()
+                // Surface the actual notification (e.g. the permission request).
+                match p.message.as_deref() {
+                    Some(m) if !m.trim().is_empty() => m.trim()[..m.trim().len().min(80)].to_string(),
+                    _ => "Needs your input".to_string(),
+                }
             }
         }
         _ => String::new(),
@@ -226,9 +256,10 @@ fn sound_for_transition(
         return None;
     }
     match new {
-        AgentState::Inactive if alarm_inactive => Some(SoundKind::Done),
+        AgentState::Stopped  if alarm_stopped  => Some(SoundKind::Done),   // turn complete
+        AgentState::Waiting  if alarm_error    => Some(SoundKind::Urgent), // needs your input
         AgentState::Error    if alarm_error    => Some(SoundKind::Urgent),
-        AgentState::Stopped  if alarm_stopped  => Some(SoundKind::Done),
+        AgentState::Inactive if alarm_inactive => Some(SoundKind::Done),
         _ => None,
     }
 }
@@ -247,6 +278,7 @@ fn make_alert(
     }
     let enabled = match new {
         AgentState::Stopped  => alarm_stopped,
+        AgentState::Waiting  => alarm_error,
         AgentState::Error    => alarm_error,
         AgentState::Inactive => alarm_inactive,
         _ => return None,
@@ -267,31 +299,18 @@ fn make_alert(
 
 fn state_label(state: &AgentState) -> &'static str {
     match state {
-        AgentState::Working    => "Working",
+        AgentState::Working    => "Thinking",
         AgentState::Running    => "Running",
         AgentState::Compacting => "Compacting",
-        AgentState::Inactive   => "Inactive",
-        AgentState::Stopped    => "Stopped",
+        AgentState::Waiting    => "Needs you",
+        AgentState::Inactive   => "Idle",
+        AgentState::Stopped    => "Done",
         AgentState::Error      => "Error",
     }
 }
 
-const ANIMALS: &[&str] = &[
-    "Axolotl", "Binturong", "Capybara", "Dingo",    "Echidna",
-    "Fennec",  "Gecko",     "Heron",    "Ibex",      "Jackal",
-    "Kinkajou","Llama",     "Marmot",   "Narwhal",   "Ocelot",
-    "Pangolin","Quokka",    "Raven",    "Serval",    "Tapir",
-    "Tanuki",  "Uakari",    "Vicuna",   "Wombat",    "Quetzal",
-];
-
-fn pick_animal(session_id: &str) -> &'static str {
-    let hash = session_id
-        .bytes()
-        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
-    ANIMALS[(hash as usize) % ANIMALS.len()]
-}
-
-fn derive_name(transcript_path: Option<&str>, session_id: &str) -> String {
+fn derive_name(transcript_path: Option<&str>, cwd: Option<&str>, session_id: &str) -> String {
+    // Preferred: the project directory encoded into the transcript path.
     if let Some(path) = transcript_path {
         if let Some(idx) = path.find("/projects/") {
             let after = &path[idx + 10..];
@@ -305,7 +324,15 @@ fn derive_name(transcript_path: Option<&str>, session_id: &str) -> String {
             }
         }
     }
-    format!("Agent {}", pick_animal(session_id))
+    // Fallback: the working directory's basename.
+    if let Some(dir) = cwd {
+        let base = dir.trim_end_matches('/').rsplit('/').next().unwrap_or("");
+        if !base.is_empty() {
+            return base.to_string();
+        }
+    }
+    // Last resort: a short slice of the session id (no more random animals).
+    format!("session {}", &session_id[..session_id.len().min(8)])
 }
 
 fn clean_encoded_path(encoded: &str) -> String {
