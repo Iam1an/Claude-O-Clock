@@ -10,8 +10,8 @@ function eventColor(eventType: string): string {
     case "PreToolUse":      return STATE_COLOR.running;
     case "PostToolUse":     return STATE_COLOR.working;
     case "UserPromptSubmit":return STATE_COLOR.working;
-    case "Stop":            return STATE_COLOR.inactive;
-    case "Notification":    return STATE_COLOR.compacting;
+    case "Stop":            return STATE_COLOR.stopped;
+    case "Notification":    return STATE_COLOR.waiting;
     default:                return STATE_COLOR.working;
   }
 }
@@ -153,9 +153,9 @@ export function AgentDetail({ agent, onBack }: Props) {
   }
 
   const alarmRows: { key: "alarmStopped" | "alarmError" | "alarmInactive"; label: string; sub: string }[] = [
-    { key: "alarmInactive", label: "Inactive",  sub: "Turn complete, waiting for next prompt" },
-    { key: "alarmStopped",  label: "Stopped",   sub: "Session ended" },
-    { key: "alarmError",    label: "Error",     sub: "Something went wrong" },
+    { key: "alarmStopped",  label: "Done",       sub: "Finished its turn (chime)" },
+    { key: "alarmError",    label: "Needs you",  sub: "Waiting for input / error (alert)" },
+    { key: "alarmInactive", label: "Idle",       sub: "Went quiet with no activity" },
   ];
 
   return (

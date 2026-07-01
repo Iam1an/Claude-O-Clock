@@ -17,16 +17,12 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["net", "io-util", "time"] }
+tokio = { version = "1", features = ["net", "io-util", "time", "signal"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 
-# tray-icon pulled in on macOS only — on Linux it would force a link against
-# libayatana-appindicator3 which isn't needed (Linux uses a plain window).
-[target.'cfg(target_os = "macos")'.dependencies]
+# tray-icon: macOS uses a menu-bar tray app. Linux/Hyprland uses a plain
+# always-on-top window (Close collapses it to its titlebar rather than hiding).
 tauri = { version = "2", features = ["tray-icon"] }
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-tauri = { version = "2" }
 
 [profile.release]
 lto = true

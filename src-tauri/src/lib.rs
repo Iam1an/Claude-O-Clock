@@ -15,6 +15,14 @@ fn get_agents(store: tauri::State<agent_store::SharedStore>) -> Vec<types::Agent
     store.lock().unwrap_or_else(|e| e.into_inner()).list()
 }
 
+/// Quit the app cleanly (the ✕ button). On Linux "hide" is a quit + relaunch,
+/// because unmapping the webkit window is unstable; a plain exit can't segfault
+/// and agent state is already persisted to SQLite.
+#[tauri::command]
+fn quit_app() {
+    std::process::exit(0);
+}
+
 #[tauri::command]
 fn set_dnd(enabled: bool, store: tauri::State<agent_store::SharedStore>) {
     store.lock().unwrap_or_else(|e| e.into_inner()).set_dnd(enabled);
@@ -87,12 +95,18 @@ fn rename_agent(
 }
 
 pub fn run() {
+    // webkit2gtk on some Wayland + GPU combos SIGABRTs deep in the DMABUF
+    // renderer (drmWaitVBlank / libgallium). Disabling the DMABUF renderer is
+    // the standard workaround; it must be set before the webview initialises.
+    #[cfg(target_os = "linux")]
+    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+
     let store: agent_store::SharedStore = Arc::new(Mutex::new(AgentStore::new()));
     let hook_store = store.clone();
 
     tauri::Builder::default()
         .manage(store.clone())
-        .invoke_handler(tauri::generate_handler![get_agents, set_dnd, get_alerts, clear_alerts, rename_agent, get_agent_events, set_agent_alarms])
+        .invoke_handler(tauri::generate_handler![get_agents, set_dnd, get_alerts, clear_alerts, rename_agent, get_agent_events, set_agent_alarms, quit_app])
         .setup(move |app| {
             // Open the database in the app data directory
             let data_dir = app
@@ -124,9 +138,10 @@ pub fn run() {
                 hook_server::start(hook_store, hook_db, handle).await;
             });
 
-            // Idle timeout: if no hook fires for 30 s while Working/Running,
-            // transition the agent to Inactive and persist the change so dead
-            // agents don't come back as Working after a COC restart.
+            // Idle timeout: only a safety net for agents that die WITHOUT a Stop
+            // hook (e.g. killed). Normal turn-ends arrive as Stop → Done, so this
+            // is deliberately long — a short timeout would mislabel ordinary
+            // thinking and long-running tools (builds, etc.) as Inactive.
             let idle_store = store.clone();
             let idle_db = db.clone();
             let idle_handle = app.handle().clone();
@@ -138,7 +153,7 @@ pub fn run() {
                     ticker.tick().await;
                     let updated = {
                         let mut s = idle_store.lock().unwrap_or_else(|e| e.into_inner());
-                        s.tick_idle(3)
+                        s.tick_idle(180)
                     };
                     if let Some(agents) = updated {
                         let _ = idle_handle.emit("agent-update", &agents);
@@ -157,16 +172,30 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             init_macos(app)?;
 
-            // Linux/Hyprland: always-on-top floating window shown immediately
+            // Linux/Hyprland: floating always-on-top widget + a tray icon in the
+            // bar (waybar). Close hides to the tray instead of quitting.
             #[cfg(not(target_os = "macos"))]
-            app.get_webview_window("main")
-                .expect("no main window")
-                .show()?;
+            init_linux(app)?;
 
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running claudeoclock")
+}
+
+/// Linux/Hyprland: just show the widget. It's a plain always-on-top floating
+/// window positioned/sized by a Hyprland window rule. There is deliberately no
+/// in-app hide/tray/move: unmapping the webkit2gtk surface SIGSEGVs webkit's
+/// render thread on this Wayland/GPU stack, and Wayland clients can't move
+/// themselves. "Hide" is a clean quit and "show" is a fresh launch (agents
+/// restore from SQLite) — driven by the waybar claude icon. The ✕ button quits
+/// via the `quit_app` command.
+#[cfg(not(target_os = "macos"))]
+fn init_linux<R: tauri::Runtime>(app: &mut tauri::App<R>) -> tauri::Result<()> {
+    app.get_webview_window("main")
+        .expect("no main window")
+        .show()?;
+    Ok(())
 }
 
 /// macOS: remove Dock icon, add menu-bar tray, toggle window on click,

@@ -198,6 +198,7 @@ fn state_to_str(state: &AgentState) -> &'static str {
         AgentState::Working    => "working",
         AgentState::Running    => "running",
         AgentState::Compacting => "compacting",
+        AgentState::Waiting    => "waiting",
         AgentState::Inactive   => "inactive",
         AgentState::Stopped    => "stopped",
         AgentState::Error      => "error",
@@ -209,7 +210,8 @@ fn str_to_state(s: &str) -> AgentState {
         "working"                         => AgentState::Working,
         "running"                         => AgentState::Running,
         "compacting"                      => AgentState::Compacting,
-        "inactive" | "waiting"            => AgentState::Inactive,  // waiting → inactive
+        "waiting"                         => AgentState::Waiting,
+        "inactive"                        => AgentState::Inactive,
         "stopped"  | "done"               => AgentState::Stopped,   // done → stopped
         "error"                           => AgentState::Error,
         // old states folded into Working

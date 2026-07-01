@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Agent, AlertEntry, Tab } from "./types";
@@ -15,12 +14,11 @@ const IS_TAURI = "__TAURI_INTERNALS__" in window;
 
 const TAB_ORDER: Tab[] = ["overview", "agents", "alerts", "settings"];
 
-async function minimize() {
-  try { await getCurrentWindow().minimize(); } catch { /* browser dev */ }
-}
-
-async function close() {
-  try { await getCurrentWindow().close(); } catch { /* browser dev */ }
+// Close = quit. On Linux, hiding/unmapping the webkit window is unstable, so the
+// widget is toggled by quitting + relaunching from the waybar claude icon
+// (agent state is persisted to SQLite). The ✕ triggers the clean quit.
+async function quitApp() {
+  try { await invoke("quit_app"); } catch { /* browser dev */ }
 }
 
 export default function App() {
@@ -93,13 +91,7 @@ export default function App() {
             </svg>
           </button>
 
-          <button className="icon-btn" title="Minimize" onClick={minimize}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          </button>
-
-          <button className="icon-btn" title="Close" onClick={close}>
+          <button className="icon-btn" title="Close" onClick={quitApp}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
